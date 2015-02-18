@@ -1,0 +1,90 @@
+---
+title: "PML Project"
+author: "Luna Gui"
+date: "16 February 2015"
+output:
+  html_document:
+    keep_md: yes
+---
+
+# Summary
+In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har).   
+
+**The training set has 160 variables. The goal is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. So we explor data, build our model, and predict which exercise they did in testing set.**  
+
+# Get Clean Data
+```{r download, cache=TRUE}
+## Download data
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(trainUrl, destfile = "pml_training.csv", method = "curl")
+download.file(testUrl, destfile = "pml_testing.csv", method = "curl")
+dateDownloaded <- date()
+## Read data
+training <- read.csv("pml_training.csv",na.strings=c("","NA"))
+testing <- read.csv("pml_testing.csv",na.strings=c("","NA"))
+str(training)
+```
+
+**For the first glance, we found there are lots of missing data. I dicied to drop all the colums if they contains 80% missing data.** 
+```{r clean, cache=TRUE}
+## Clean data
+nullcol <- c()
+for(i in 1:dim(training)[2]){
+        p <- sum(is.na(training[,i]))/19622
+        if(p>0.8){
+                nullcol <- c(nullcol, i)
+        }
+}
+library(dplyr)
+myDT <- select(training, -nullcol)
+## I don't think index and name good for predict, just drop them too
+myDT <- select(myDT, 3:60)
+## Check again
+sum(!complete.cases(myDT))
+```
+
+# Explor Data
+**We plan to fit different model, and chose one performed best. We split our clean data into myTrain and myTest set, in case we need OOB error.(Also because we have lost of observations.)**
+```{r explor, cache=TRUE}
+## Split training data into myTrain and myTest data set.
+library(caret)
+inTrain <- createDataPartition(y=myDT$classe,
+                              p=0.7, list=FALSE)
+myTrain <- myDT[inTrain,]
+myTest <- myDT[-inTrain,]
+table(myTrain$classe)
+## Fit rpart model
+modrpart <- train(classe~ ., data= myTrain, method= "rpart")
+modrpart
+library(rattle)
+fancyRpartPlot(modrpart$finalModel)
+confusionMatrix(predict(modrpart, myTrain), myTrain$classe)
+```
+
+**We know this rpart model is not good even don't need to test. Look at the plot, the classe miss one. Obviously, the in sample error is very high, and we don't need to see out sample error.**  
+
+# Result
+```{r result, cache=TRUE}
+## Fit random forest model
+library(randomForest)
+modFit <- randomForest(classe ~ .,data=myTrain)
+modFit
+```
+**The random forest model performs quite good. OOB estimate of  error rate between 0.1% ~ 0.2%. **  
+```{r matrix, cache=TRUE}
+plot(modFit, log="y")
+confusionMatrix(predict(modFit, myTrain), myTrain$classe)
+confusionMatrix(predict(modFit, myTest), myTest$classe)
+```
+**The confusion Matrix shows even in my test set, the Accuracy is around 0.9992.**
+
+# Predict
+```{r predict, cache=TRUE}
+mytesting <- select(testing, -nullcol)
+mytesting <- select(mytesting, 3:60)
+levels(mytesting$cvtd_timestamp) <- levels(myTrain$cvtd_timestamp)
+levels(mytesting$new_window) <- levels(myTrain$new_window)
+answer <- predict(modFit, mytesting)
+```
+**I clean the testing data same as training data, and got all 20 right predictions.**
